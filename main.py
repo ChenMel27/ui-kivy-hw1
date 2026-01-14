@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, List, Optional
 
 
 # Attempt to import the provided helper; fall back to a no-op implementation if missing.
@@ -42,26 +42,28 @@ from kivy.clock import Clock
 from kivy.core.window import Window
 from kivy.lang import Builder
 from kivy.metrics import dp, sp
-from kivy.properties import BooleanProperty, ListProperty, StringProperty
+from kivy.properties import BooleanProperty, ListProperty, NumericProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.spinner import SpinnerOption
-
-
-Window.size = (dp(400), dp(500))
-Window.minimum_width = dp(360)
-Window.minimum_height = dp(460)
-Window.clearcolor = (0.94, 0.95, 0.98, 1)
-
-
-# Spinner customization pattern follows the Kivy docs example:
-# https://kivy.org/doc/stable/api-kivy.uix.spinner.html
-class FormSpinnerOption(SpinnerOption):
-	pass
-
+from kivy.uix.button import Button
+from kivy.uix.screenmanager import Screen, ScreenManager, FadeTransition
+from kivy.uix.checkbox import CheckBox
 
 KV = """
 #:import dp kivy.metrics.dp
 #:import sp kivy.metrics.sp
+
+
+<EntryRow>:
+	size_hint_y: None
+	height: dp(48)
+	padding: dp(14), 0
+	halign: 'left'
+	valign: 'middle'
+	text_size: self.width - dp(20), self.height
+	background_normal: ''
+	background_color: (0.94, 0.95, 0.98, 1)
+	color: 0.12, 0.12, 0.2, 1
+	on_release: app.open_entry(self.entry_index)
 
 <StylizedLabel@Label>:
 	size_hint_y: None
@@ -84,12 +86,72 @@ KV = """
 	background_color: (0.96, 0.97, 0.99, 1) if not self.focus else (1, 1, 1, 1)
 	foreground_color: 0.1, 0.1, 0.15, 1
 
-<FormSpinnerOption>:
+<FormSpinnerOption@SpinnerOption>:
 	height: dp(38)
 	font_size: sp(16)
 	background_normal: ''
 	background_color: 0.96, 0.97, 0.99, 1
 	color: 0.12, 0.12, 0.2, 1
+
+<ListScreen>:
+	name: 'list'
+	BoxLayout:
+		orientation: 'vertical'
+		padding: dp(16)
+		spacing: dp(12)
+		canvas.before:
+			Color:
+				rgba: 1, 1, 1, 1
+			RoundedRectangle:
+				pos: self.pos
+				size: self.size
+				radius: [dp(8)]
+		BoxLayout:
+			size_hint_y: None
+			height: dp(52)
+			padding: 0, 0, 0, 0
+			Label:
+				text: "Demographics Entries"
+				bold: True
+				font_size: sp(20)
+				color: 0.05, 0.2, 0.35, 1
+			Button:
+				text: '+'
+				size_hint_x: None
+				width: dp(52)
+				font_size: sp(24)
+				background_normal: ''
+				background_color: 0.16, 0.55, 0.4, 1
+				color: 1, 1, 1, 1
+				on_release: app.start_new_entry()
+		Widget:
+			size_hint_y: None
+			height: dp(4)
+		Label:
+			id: empty_hint
+			text: "No entries yet. Tap + to add one."
+			size_hint_y: None
+			height: dp(28)
+			color: 0.25, 0.25, 0.3, 1
+			opacity: 1
+			font_size: sp(14)
+		RecycleView:
+			id: entries_rv
+			viewclass: 'EntryRow'
+			bar_width: dp(6)
+			data: []
+			RecycleBoxLayout:
+				default_size: None, dp(48)
+				default_size_hint: 1, None
+				size_hint_y: None
+				height: self.minimum_height
+				orientation: 'vertical'
+				spacing: dp(6)
+
+<FormScreen>:
+	name: 'form'
+	DemographicsForm:
+		id: form_widget
 
 <DemographicsForm>:
 	orientation: 'vertical'
@@ -188,6 +250,7 @@ KV = """
 						height: dp(32)
 						spacing: dp(6)
 						CheckBox:
+							id: gender_woman
 							size_hint: None, None
 							size: dp(24), dp(24)
 							on_active: root.on_gender_toggle('Woman/girl', self.active)
@@ -203,6 +266,7 @@ KV = """
 						height: dp(32)
 						spacing: dp(6)
 						CheckBox:
+							id: gender_man
 							size_hint: None, None
 							size: dp(24), dp(24)
 							on_active: root.on_gender_toggle('Man/boy', self.active)
@@ -218,6 +282,7 @@ KV = """
 						height: dp(32)
 						spacing: dp(6)
 						CheckBox:
+							id: gender_nb
 							size_hint: None, None
 							size: dp(24), dp(24)
 							on_active: root.on_gender_toggle('Non-binary', self.active)
@@ -233,6 +298,7 @@ KV = """
 						height: dp(32)
 						spacing: dp(6)
 						CheckBox:
+							id: gender_two_spirit
 							size_hint: None, None
 							size: dp(24), dp(24)
 							on_active: root.on_gender_toggle('Two-Spirit', self.active)
@@ -248,6 +314,7 @@ KV = """
 						height: dp(32)
 						spacing: dp(6)
 						CheckBox:
+							id: gender_prefer_no
 							size_hint: None, None
 							size: dp(24), dp(24)
 							on_active: root.on_gender_toggle('Prefer not to say', self.active)
@@ -263,7 +330,7 @@ KV = """
 			FormTextInput:
 				id: phone_input
 				hint_text: "(555) 555-5555"
-        
+
 	BoxLayout:
 		size_hint_y: None
 		height: dp(56)
@@ -288,7 +355,38 @@ KV = """
 """
 
 
-Builder.load_string(KV)
+class EntryRow(Button):
+	"""Button row used inside the RecycleView."""
+
+	entry_index = NumericProperty(-1)
+
+
+class ListScreen(Screen):
+	"""Displays stored entries in a scrollable list."""
+
+	def update_rows(self, rows: List[Dict[str, object]]) -> None:
+		if not hasattr(self, "ids"):
+			return
+		rv = self.ids.entries_rv
+		rv.data = rows
+		hint = self.ids.empty_hint
+		if rows:
+			hint.opacity = 0
+			hint.height = 0
+		else:
+			hint.opacity = 1
+			hint.height = dp(28)
+
+
+class FormScreen(Screen):
+	"""Hosts the demographics form for creating or editing entries."""
+
+	def load_entry(self, entry: Optional[Dict[str, object]]) -> None:
+		self.ids.form_widget.load_entry(entry)
+
+	@property
+	def form(self) -> "DemographicsForm":
+		return self.ids.form_widget
 
 
 class DemographicsForm(BoxLayout):
@@ -314,7 +412,9 @@ class DemographicsForm(BoxLayout):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
 		self.selected_genders: set[str] = set()
+		self.gender_checkboxes: Dict[str, CheckBox] = {}
 		self._formatting_phone = False
+		self._loading_entry = False
 
 	def on_kv_post(self, base_widget):
 		super().on_kv_post(base_widget)
@@ -329,6 +429,13 @@ class DemographicsForm(BoxLayout):
 		phone_input.input_filter = self._phone_input_filter
 		spinner = self.ids.age_spinner
 		spinner.bind(text=self.on_age_selected)
+		self.gender_checkboxes = {
+			"Woman/girl": self.ids.gender_woman,
+			"Man/boy": self.ids.gender_man,
+			"Non-binary": self.ids.gender_nb,
+			"Two-Spirit": self.ids.gender_two_spirit,
+			"Prefer not to say": self.ids.gender_prefer_no,
+		}
 		self._update_submit_state()
 
 	def _name_input_filter(self, substring: str, from_undo: bool) -> str:  # noqa: ARG002
@@ -362,6 +469,31 @@ class DemographicsForm(BoxLayout):
 			self.selected_genders.add(label)
 		else:
 			self.selected_genders.discard(label)
+		if not self._loading_entry:
+			self._update_submit_state()
+
+	def load_entry(self, entry: Optional[Dict[str, object]]) -> None:
+		self._loading_entry = True
+		try:
+			if entry is None:
+				self.ids.first_name.text = ""
+				self.ids.last_name.text = ""
+				self.ids.age_spinner.text = self.age_prompt
+				self.selected_genders.clear()
+				for checkbox in self.gender_checkboxes.values():
+					checkbox.active = False
+				self.ids.phone_input.text = ""
+			else:
+				self.ids.first_name.text = str(entry.get("first_name", ""))
+				self.ids.last_name.text = str(entry.get("last_name", ""))
+				age_value = str(entry.get("age_range", self.age_prompt))
+				self.ids.age_spinner.text = age_value if age_value in self.age_options else self.age_prompt
+				self.selected_genders = set(map(str, entry.get("genders_selected", [])))
+				for label, checkbox in self.gender_checkboxes.items():
+					checkbox.active = label in self.selected_genders
+				self.ids.phone_input.text = str(entry.get("phone_number", ""))
+		finally:
+			self._loading_entry = False
 		self._update_submit_state()
 
 	def _valid_name(self, value: str) -> bool:
@@ -411,18 +543,84 @@ class DemographicsForm(BoxLayout):
 		if self.submit_disabled:
 			return
 		payload = self._payload()
-		print(payload)
-		App.get_running_app().stop()
+		app = App.get_running_app()
+		app.handle_form_submit(payload)
 
 	def cancel_form(self) -> None:
-		App.get_running_app().stop()
+		app = App.get_running_app()
+		app.handle_form_cancel()
+
+
+Builder.load_string(KV)
 
 
 class DemographicsApp(App):
-	"""Kivy application entry point."""
+	"""Kivy application entry point with list + form workflow."""
+
+	def __init__(self, **kwargs):
+		super().__init__(**kwargs)
+		self.entries: List[Dict[str, object]] = []
+		self.editing_index: Optional[int] = None
+		self._screen_manager: Optional[ScreenManager] = None
 
 	def build(self):  # noqa: D401
-		return DemographicsForm()
+		self._screen_manager = ScreenManager(transition=FadeTransition(duration=0.2))
+		self._screen_manager.add_widget(ListScreen(name="list"))
+		self._screen_manager.add_widget(FormScreen(name="form"))
+		return self._screen_manager
+
+	@property
+	def screen_manager(self) -> ScreenManager:
+		if self._screen_manager is None:
+			raise RuntimeError("Screen manager is not initialized yet")
+		return self._screen_manager
+
+	@property
+	def list_screen(self) -> ListScreen:
+		return self.screen_manager.get_screen("list")  # type: ignore[return-value]
+
+	@property
+	def form_screen(self) -> FormScreen:
+		return self.screen_manager.get_screen("form")  # type: ignore[return-value]
+
+	def on_start(self):  # noqa: D401
+		self.refresh_list_view()
+
+	def refresh_list_view(self) -> None:
+		rows = []
+		for idx, entry in enumerate(self.entries):
+			first = str(entry.get("first_name", "")).strip()
+			last = str(entry.get("last_name", "")).strip()
+			title = f"{first} {last}".strip() or f"Entry {idx + 1}"
+			rows.append({"text": title, "entry_index": idx})
+		self.list_screen.update_rows(rows)
+
+	def start_new_entry(self) -> None:
+		self.editing_index = None
+		self.form_screen.load_entry(None)
+		self.screen_manager.current = "form"
+
+	def open_entry(self, index: int) -> None:
+		if 0 <= index < len(self.entries):
+			self.editing_index = index
+			self.form_screen.load_entry(self.entries[index])
+			self.screen_manager.current = "form"
+
+	def handle_form_submit(self, payload: Dict[str, object]) -> None:
+		print(payload)
+		if self.editing_index is None:
+			self.entries.append(payload)
+		else:
+			self.entries[self.editing_index] = payload
+		self.editing_index = None
+		self.refresh_list_view()
+		self.form_screen.load_entry(None)
+		self.screen_manager.current = "list"
+
+	def handle_form_cancel(self) -> None:
+		self.editing_index = None
+		self.form_screen.load_entry(None)
+		self.screen_manager.current = "list"
 
 
 if __name__ == "__main__":
