@@ -3,35 +3,11 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from typing import Dict, List, Optional
 
+from kivy_config_helper import config_kivy
 
-# Attempt to import the provided helper; fall back to a no-op implementation if missing.
-try:  # pragma: no cover - behavior depends on course-provided helper
-	from kivy_config_helper import DeviceConfig, configure_kivy  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover - fallback for local testing
-
-	@dataclass
-	class DeviceConfig:
-		"""Minimal device description for density simulation."""
-
-		width: int = 400
-		height: int = 500
-		density: int = 160
-
-	def configure_kivy(device: DeviceConfig | None = None, simulate: bool = False) -> None:
-		"""Configure Kivy window defaults when the helper is unavailable."""
-
-		from kivy.config import Config  # lazy import so kivy is not loaded prematurely
-
-		target = device or DeviceConfig()
-		Config.set("graphics", "width", target.width)
-		Config.set("graphics", "height", target.height)
-		Config.set("graphics", "resizable", "0" if not simulate else "1")
-
-
-configure_kivy(DeviceConfig(width=400, height=500, density=160), simulate=False)
+config_kivy(window_width=400, window_height=500)
 
 import kivy
 
@@ -39,9 +15,8 @@ kivy.require("2.3.0")
 
 from kivy.app import App
 from kivy.clock import Clock
-from kivy.core.window import Window
 from kivy.lang import Builder
-from kivy.metrics import dp, sp
+from kivy.metrics import dp
 from kivy.properties import BooleanProperty, ListProperty, NumericProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
